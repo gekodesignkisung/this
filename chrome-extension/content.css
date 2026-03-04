@@ -96,7 +96,7 @@
 .tpp-send:hover { background: linear-gradient(135deg,#4f46e5,#6d28d9) !important; transform: translateY(-1px) !important; }
 .tpp-send:disabled { background: #e5e7eb !important; color: #9ca3af !important; cursor: not-allowed !important; transform: none !important; }
 
-.tpp-result { padding: 20px 16px !important; text-align: center !important; }
-.tpp-result-icon  { font-size: 28px !important; display: block !important; margin-bottom: 8px !important; }
-.tpp-result-title { font-size: 13px !important; font-weight: 700 !important; color: #111827 !important; display: block !important; margin-bottom: 4px !important; }
+.tpp-result { padding: 20px 16px !important; text-align: center !important; display: flex !important; flex-direction: column !important; gap: 4px !important; }
+.tpp-result-subject { font-size: 11px !important; font-weight: 600 !important; color: #6366f1 !important; font-family: Consolas, monospace !important; display: block !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
+.tpp-result-title { font-size: 13px !important; font-weight: 700 !important; color: #111827 !important; display: block !important; }
 .tpp-result small { font-size: 11px !important; color: #9ca3af !important; display: block !important; }

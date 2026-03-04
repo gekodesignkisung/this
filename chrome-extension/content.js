@@ -28,7 +28,18 @@
     });
   } catch (_) { /* context invalidated */ }
 
-  //  Picker 
+  //  Picker
+  var idleTimer = null;
+  var IDLE_MS = 60 * 1000; // 1분
+
+  function resetIdleTimer() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(function() {
+      deactivatePicker();
+      try { chrome.runtime.sendMessage({ type: 'PICK_CANCELLED' }); } catch (_) {}
+    }, IDLE_MS);
+  }
+
   function activatePicker() {
     if (isPickerActive) return;
     isPickerActive = true;
@@ -36,12 +47,14 @@
     document.addEventListener('mouseout', onMouseOut);
     document.addEventListener('click', onPick, true);
     document.addEventListener('keydown', onKeyDown);
+    resetIdleTimer();
   }
 
   function deactivatePicker() {
-    if (!isPickerActive) return;
+    clearTimeout(idleTimer);
     isPickerActive = false;
     removeHighlights();
+    closePopup(false);
     document.removeEventListener('mouseover', onHover);
     document.removeEventListener('mouseout', onMouseOut);
     document.removeEventListener('click', onPick, true);
@@ -176,13 +189,23 @@
     try {
       var result = await sendToServer(info, message);
       if (result.success === false) {
-        showPopupResult(false, result.error || '\uc218\uc815\uc5d0 \uc2e4\ud328\ud588\uc2b5\ub2c8\ub2e4.');
+        showPopupResult(false, info.selector, result.error || '\uc218\uc815\uc5d0 \uc2e4\ud328\ud588\uc2b5\ub2c8\ub2e4.');
       } else {
-        showPopupResult(true, result.description || '\uc218\uc815 \uc644\ub8cc!', result.file);
-        try { chrome.runtime.sendMessage({ type: 'PICK_DONE', selector: info.selector, description: result.description || '수정 완료', file: result.file || null, changeId: result.changeId || null }); } catch (_) {}
+        showPopupResult(true, info.selector, result.description || '\uc218\uc815 \uc644\ub8cc!', result.file);
+        // 히스토리를 storage에 저장 (메시지 유실 방지)
+        try {
+          chrome.storage.local.get(['thisHistory'], function(data) {
+            var hist = data.thisHistory || [];
+            hist.unshift({ selector: info.selector, name: info.selector, description: result.description || '수정 완료', file: result.file || null, changeId: result.changeId || null, ts: Date.now() });
+            if (hist.length > 10) hist.splice(10);
+            chrome.storage.local.set({ thisHistory: hist });
+          });
+        } catch (_) {}
+        // 피커 재활성화 신호 (best-effort)
+        try { chrome.runtime.sendMessage({ type: 'PICK_DONE' }); } catch (_) {}
       }
     } catch (_) {
-      showPopupResult(false, '\uc11c\ubc84\uc5d0 \uc5f0\uacb0\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.');
+      showPopupResult(false, info.selector, '\uc11c\ubc84\uc5d0 \uc5f0\uacb0\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.');
     }
   }
 
@@ -199,16 +222,18 @@
     return await res.json();
   }
 
-  function showPopupResult(success, msg, file) {
+  function showPopupResult(success, subject, msg, file) {
     if (!popupEl) return;
     document.removeEventListener('click', onOutsideClick, true);
-    var sub = file ? '<small style="opacity:.6">' + file + '</small>' : '';
+    var subjectHtml = subject ? '<span class="tpp-result-subject">' + escapeHtml(subject) + '</span>' : '';
+    var fileHtml = file ? '<small style="opacity:.5">' + file + '</small>' : '';
     popupEl.innerHTML =
       '<div class="tpp-result">' +
-        '<span class="tpp-result-title">' + msg + '</span>' +
-        sub +
+        subjectHtml +
+        '<span class="tpp-result-title">' + escapeHtml(msg) + '</span>' +
+        fileHtml +
       '</div>';
-    setTimeout(function() { closePopup(true); }, success ? 1800 : 4000);
+    setTimeout(function() { closePopup(false); }, success ? 1800 : 4000);
   }
 
   //  Element Info 

@@ -113,9 +113,9 @@ function setSettingsStatus(text, cls) {
   settingsStatus.className = 'settings-status ' + (cls || '');
 }
 
-// 저장된 설정 불러오기
+// 저장된 설정 + 히스토리 불러오기
 async function loadSavedPath() {
-  const data = await chrome.storage.local.get(['projectRoot', 'apiKey']);
+  const data = await chrome.storage.local.get(['projectRoot', 'apiKey', 'thisHistory']);
   if (data.projectRoot) pathInput.value = data.projectRoot;
   if (data.apiKey) {
     apiKeyInput.value = data.apiKey;
@@ -126,6 +126,11 @@ async function loadSavedPath() {
       body: JSON.stringify({ apiKey: data.apiKey, projectRoot: data.projectRoot }),
       signal: AbortSignal.timeout(3000),
     }).catch(() => {});
+  }
+  // 저장된 히스토리 복원
+  if (data.thisHistory && data.thisHistory.length > 0) {
+    history.splice(0, history.length, ...data.thisHistory);
+    renderHistory();
   }
 }
 
@@ -180,14 +185,8 @@ chrome.runtime.onMessage.addListener((msg) => {
     editToggle.checked = false;
     setEditStatus('처리 중...', '');
   }
+  // PICK_DONE: 히스토리는 storage.onChanged로 처리, 여기선 피커 재활성화만
   if (msg.type === 'PICK_DONE') {
-    addHistory({
-      selector: msg.selector || '알 수 없음',
-      name: msg.selector || '요소',
-      description: msg.description || '수정 완료',
-      file: msg.file || null,
-      changeId: msg.changeId || null,
-    });
     isActive = true;
     editToggle.checked = true;
     setEditStatus('요소를 클릭하세요', 'active');
@@ -195,6 +194,15 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
   if (msg.type === 'PICK_CANCELLED') {
     deactivate();
+  }
+});
+
+// storage 변경 감지 → 히스토리 업데이트 (메시지 유실 없는 안정적 경로)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.thisHistory) {
+    const newHistory = changes.thisHistory.newValue || [];
+    history.splice(0, history.length, ...newHistory);
+    renderHistory();
   }
 });
 
@@ -216,11 +224,15 @@ function renderHistory() {
         '<div class="history-name">' + esc(item.name) + '</div>' +
         '<div class="history-desc">' + esc(item.description) + '</div>' +
       '</div>' +
-      '<button class="restore-btn" title="되돌리기" data-i="' + i + '">' +
-        '<img src="icon-restore.svg" width="32" height="32" alt="되돌리기" />' +
-      '</button>';
+      '<div class="history-btns">' +
+        '<button class="restore-btn" title="되돌리기" data-i="' + i + '">' +
+          '<img src="icon-restore.svg" width="32" height="32" alt="되돌리기" />' +
+        '</button>' +
+        '<button class="delete-btn" title="삭제" data-i="' + i + '">✕</button>' +
+      '</div>';
     historyList.appendChild(div);
     div.querySelector('.restore-btn').addEventListener('click', () => restoreItem(i));
+    div.querySelector('.delete-btn').addEventListener('click', () => deleteItem(i));
   });
 }
 
@@ -241,9 +253,19 @@ async function restoreItem(index) {
       body: JSON.stringify({ changeId: item.changeId }),
       signal: AbortSignal.timeout(15000),
     });
-    if (res.ok) { history.splice(index, 1); renderHistory(); }
+    if (res.ok) {
+      history.splice(index, 1);
+      chrome.storage.local.set({ thisHistory: [...history] });
+      renderHistory();
+    }
     else { if (btn) btn.disabled = false; }
   } catch { if (btn) btn.disabled = false; }
+}
+
+function deleteItem(index) {
+  history.splice(index, 1);
+  chrome.storage.local.set({ thisHistory: [...history] });
+  renderHistory();
 }
 
 function esc(str) {
