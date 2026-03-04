@@ -1,6 +1,7 @@
-/**
+﻿/**
  * THIS Extension - Content Script
- * popup.js로부터 ACTIVATE_PICKER 메시지를 받아 페이지에서 요소 선택 모드를 실행합니다
+ * - ACTIVATE_PICKER / DEACTIVATE_PICKER : sidepanel.js 에서 수신
+ * - 요소 클릭 : 미니 팝업(클릭 위치) + ELEMENT_PICKED -> sidepanel
  */
 (function () {
   'use strict';
@@ -8,28 +9,29 @@
   if (window.__thisExtLoaded) return;
   window.__thisExtLoaded = true;
 
-  // ── State ────────────────────────────────────────────
   let isPickerActive = false;
-  let hoveredEl = null;
-  let selectedEl = null;
-  let popupEl = null;
-  let bannerEl = null;
+  let hoveredEl      = null;
+  let selectedEl     = null;
+  let popupEl        = null;
 
-  // ── Message Listener (popup → content) ───────────────
-  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg.type === 'ACTIVATE_PICKER') {
-      activatePicker();
-      sendResponse({ picking: true });
-    }
-    return true;
-  });
+  //  Message Listener 
+  try {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (msg.type === 'ACTIVATE_PICKER') {
+        activatePicker();
+        sendResponse({ ok: true });
+      } else if (msg.type === 'DEACTIVATE_PICKER') {
+        deactivatePicker();
+        sendResponse({ ok: true });
+      }
+      return true;
+    });
+  } catch (_) { /* context invalidated */ }
 
-  // ── Picker Activate ───────────────────────────────────
+  //  Picker 
   function activatePicker() {
     if (isPickerActive) return;
     isPickerActive = true;
-
-    showBanner();
     document.addEventListener('mouseover', onHover);
     document.addEventListener('mouseout', onMouseOut);
     document.addEventListener('click', onPick, true);
@@ -39,31 +41,14 @@
   function deactivatePicker() {
     if (!isPickerActive) return;
     isPickerActive = false;
-
-    hideBanner();
     removeHighlights();
     document.removeEventListener('mouseover', onHover);
     document.removeEventListener('mouseout', onMouseOut);
     document.removeEventListener('click', onPick, true);
     document.removeEventListener('keydown', onKeyDown);
-
-    chrome.runtime.sendMessage({ type: 'PICK_CANCELLED' });
   }
 
-  // ── Banner ────────────────────────────────────────────
-  function showBanner() {
-    if (bannerEl) return;
-    bannerEl = document.createElement('div');
-    bannerEl.id = 'this-ext-banner';
-    bannerEl.innerHTML = `<span>▷ 수정할 요소를 클릭하세요</span><kbd>ESC</kbd><span>취소</span>`;
-    document.body.appendChild(bannerEl);
-  }
-
-  function hideBanner() {
-    if (bannerEl) { bannerEl.remove(); bannerEl = null; }
-  }
-
-  // ── Highlight ─────────────────────────────────────────
+  //  Hover Highlight 
   function onHover(e) {
     if (isOurElement(e.target)) return;
     if (hoveredEl) hoveredEl.classList.remove('this-ext-hover');
@@ -71,11 +56,8 @@
     hoveredEl.classList.add('this-ext-hover');
   }
 
-  function onMouseOut(_e) {
-    if (hoveredEl) {
-      hoveredEl.classList.remove('this-ext-hover');
-      hoveredEl = null;
-    }
+  function onMouseOut() {
+    if (hoveredEl) { hoveredEl.classList.remove('this-ext-hover'); hoveredEl = null; }
   }
 
   function removeHighlights() {
@@ -83,229 +65,170 @@
     document.querySelectorAll('.this-ext-selected').forEach(el => el.classList.remove('this-ext-selected'));
   }
 
-  // ── Pick Element ──────────────────────────────────────
+  //  Pick Element 
   function onPick(e) {
     if (isOurElement(e.target)) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
 
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
+    isPickerActive = false;
+    document.removeEventListener('mouseover', onHover);
+    document.removeEventListener('mouseout', onMouseOut);
+    document.removeEventListener('click', onPick, true);
+    document.removeEventListener('keydown', onKeyDown);
 
     removeHighlights();
     selectedEl = e.target;
     selectedEl.classList.add('this-ext-selected');
 
-    deactivatePicker();
-    showPopup(selectedEl);
+    const info = getElementInfo(selectedEl);
+
+    // sidepanel 에 요소 정보 전달
+    try { chrome.runtime.sendMessage({ type: 'ELEMENT_PICKED', info }); } catch (_) {}
+
+    // 클릭 위치에 미니 팝업 표시 (기존 동일)
+    showPopup(selectedEl, info);
   }
 
   function onKeyDown(e) {
     if (e.key === 'Escape') {
-      if (popupEl) closePopup();
-      else deactivatePicker();
+      if (popupEl) closePopup(true);
+      else {
+        deactivatePicker();
+        try { chrome.runtime.sendMessage({ type: 'PICK_CANCELLED' }); } catch (_) {}
+      }
     }
   }
 
-  // ── Element Info ──────────────────────────────────────
-  function getElementInfo(el) {
-    const tag = el.tagName.toLowerCase();
-    const id = el.id ? `#${el.id}` : '';
-    const classes = [...el.classList]
-      .filter(c => !c.startsWith('this-ext-'))
-      .map(c => `.${c}`)
-      .join('');
-
-    const selector = `${tag}${id}${classes}` || tag;
-    const text = el.textContent.trim().replace(/\s+/g, ' ').slice(0, 80);
-    const cs = window.getComputedStyle(el);
-
-    return {
-      selector,
-      tag,
-      text,
-      fontSize: cs.fontSize,
-      color: cs.color,
-      bgColor: cs.backgroundColor,
-      display: cs.display,
-    };
-  }
-
-  // ── Popup ─────────────────────────────────────────────
-  function showPopup(el) {
-    closePopup();
-
-    const info = getElementInfo(el);
+  //  Mini Popup (클릭 위치) 
+  function showPopup(el, info) {
+    closePopup(false);
     const rect = el.getBoundingClientRect();
 
     popupEl = document.createElement('div');
     popupEl.id = 'this-ext-popup';
-    popupEl.innerHTML = `
-      <div class="this-popup-header">
-        <span class="this-popup-tag" title="${escapeHtml(info.selector)}">${escapeHtml(info.selector)}</span>
-        <button class="this-popup-close">✕</button>
-      </div>
-      <div class="this-popup-body">
-        <textarea
-          class="this-popup-input"
-          placeholder="수정 요청을 입력하세요&#10;예: 폰트크기 40px로  /  색상 파란색으로"
-          rows="3"
-        ></textarea>
-      </div>
-      <div class="this-popup-footer">
-        <span class="this-popup-hint">Shift+Enter 줄바꿈</span>
-        <button class="this-popup-send">전달하기 ↵</button>
-      </div>
-    `;
+    popupEl.innerHTML =
+      '<div class="tpp-header">' +
+        '<span class="tpp-tag" title="' + escapeHtml(info.selector) + '">' + escapeHtml(info.selector) + '</span>' +
+        '<button class="tpp-close">\u2715</button>' +
+      '</div>' +
+      '<div class="tpp-body">' +
+        '<textarea class="tpp-input" placeholder="\uc218\uc815 \uc694\uccad\uc744 \uc785\ub825\ud558\uc138\uc694&#10;\uc608: \ud3f0\ud2b8\ud06c\uae30 40px\ub85c  /  \uc0c9\uc0c1 \ud30c\ub780\uc0c9\uc73c\ub85c" rows="3"></textarea>' +
+      '</div>' +
+      '<div class="tpp-footer">' +
+        '<span class="tpp-hint">Shift+Enter \uc904\ubc14\uae40</span>' +
+        '<button class="tpp-send">\uc804\ub2ec\ud558\uae30</button>' +
+      '</div>';
 
     document.body.appendChild(popupEl);
     positionPopup(popupEl, rect);
 
-    popupEl.querySelector('.this-popup-close').addEventListener('click', closePopup);
-
-    const textarea = popupEl.querySelector('.this-popup-input');
-    const sendBtn = popupEl.querySelector('.this-popup-send');
-
+    popupEl.querySelector('.tpp-close').addEventListener('click', () => closePopup(true));
+    const textarea = popupEl.querySelector('.tpp-input');
+    const sendBtn  = popupEl.querySelector('.tpp-send');
     sendBtn.addEventListener('click', () => handleSend(info, textarea));
-    textarea.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSend(info, textarea);
-      }
+    textarea.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); handleSend(info, textarea); }
     });
-
-    setTimeout(() => {
-      document.addEventListener('click', onOutsideClick, true);
-    }, 100);
-
+    setTimeout(() => document.addEventListener('click', onOutsideClick, true), 100);
     textarea.focus();
   }
 
-  function onOutsideClick(e) {
-    if (popupEl && !popupEl.contains(e.target)) {
-      closePopup();
-    }
-  }
-
   function positionPopup(popup, rect) {
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-    const vw = document.documentElement.clientWidth;
-    const vh = document.documentElement.clientHeight;
-    const POPUP_W = 300;
-    const POPUP_H = 185;
-    const GAP = 10;
+    var POPUP_W = 300, POPUP_H = 190, GAP = 10;
+    var scrollX = window.scrollX, scrollY = window.scrollY;
+    var vw = document.documentElement.clientWidth;
+    var vh = document.documentElement.clientHeight;
 
-    let left = rect.left + scrollX;
-    let top = rect.bottom + scrollY + GAP;
-    let arrowClass = 'this-arrow-up';
+    var left = rect.left + scrollX;
+    var top  = rect.bottom + scrollY + GAP;
+    var arrowCls = 'arrow-up';
 
     if (rect.bottom + POPUP_H + GAP > vh) {
       top = rect.top + scrollY - POPUP_H - GAP;
-      arrowClass = 'this-arrow-down';
+      arrowCls = 'arrow-down';
     }
+    if (left + POPUP_W > vw - 8) left = Math.max(8, vw - POPUP_W - 8);
 
-    if (left + POPUP_W > vw - 8) {
-      left = Math.max(8, vw - POPUP_W - 8);
-    }
-
-    popup.style.left = `${Math.max(8, left)}px`;
-    popup.style.top = `${Math.max(8, top)}px`;
-    popup.classList.add(arrowClass);
+    popup.style.left = Math.max(8, left) + 'px';
+    popup.style.top  = Math.max(8, top) + 'px';
+    popup.classList.add(arrowCls);
   }
 
-  // ── Send ──────────────────────────────────────────────
-  async function handleSend(info, textarea) {
-    const message = textarea.value.trim();
-    if (!message) {
-      textarea.style.borderColor = '#ef4444';
-      textarea.focus();
-      return;
-    }
+  function onOutsideClick(e) {
+    if (popupEl && !popupEl.contains(e.target) && !isOurElement(e.target)) closePopup(true);
+  }
 
-    const sendBtn = popupEl.querySelector('.this-popup-send');
-    sendBtn.disabled = true;
-    sendBtn.textContent = '전송 중...';
+  function closePopup(resumePicker) {
+    document.removeEventListener('click', onOutsideClick, true);
+    if (popupEl) { popupEl.remove(); popupEl = null; }
+    if (selectedEl) { selectedEl.classList.remove('this-ext-selected'); selectedEl = null; }
+    if (resumePicker) activatePicker();
+  }
+
+  //  Send to Server 
+  async function handleSend(info, textarea) {
+    var message = textarea.value.trim();
+    if (!message) { textarea.style.borderColor = '#ef4444'; textarea.focus(); return; }
+
+    var sendBtn = popupEl && popupEl.querySelector('.tpp-send');
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '\uc804\uc1a1 \uc911...'; }
 
     try {
-      const result = await sendToServer(info, message);
+      var result = await sendToServer(info, message);
       if (result.success === false) {
-        showError(result.error || '수정에 실패했습니다.');
+        showPopupResult(false, result.error || '\uc218\uc815\uc5d0 \uc2e4\ud328\ud588\uc2b5\ub2c8\ub2e4.');
       } else {
-        showSuccess(result);
-        chrome.runtime.sendMessage({ type: 'PICK_DONE', selector: info.selector });
+        showPopupResult(true, result.description || '\uc218\uc815 \uc644\ub8cc!', result.file);
+        try { chrome.runtime.sendMessage({ type: 'PICK_DONE', selector: info.selector, description: result.description || '수정 완료', file: result.file || null, changeId: result.changeId || null }); } catch (_) {}
       }
-    } catch (err) {
-      showError('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인하세요.');
+    } catch (_) {
+      showPopupResult(false, '\uc11c\ubc84\uc5d0 \uc5f0\uacb0\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.');
     }
   }
 
   async function sendToServer(info, message) {
-    const res = await fetch('http://127.0.0.1:3333/request', {
+    var res = await fetch('http://127.0.0.1:3333/request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        selector: info.selector,
-        message,
-        url: window.location.href,
-        elementInfo: {
-          fontSize: info.fontSize,
-          color: info.color,
-          display: info.display,
-          text: info.text,
-        },
+        selector: info.selector, message: message, url: window.location.href,
+        elementInfo: { fontSize: info.fontSize, color: info.color, display: info.display, text: info.text },
       }),
       signal: AbortSignal.timeout(30000),
     });
     return await res.json();
   }
 
-  // ── Success / Close ───────────────────────────────────
-  function showSuccess(result) {
+  function showPopupResult(success, msg, file) {
     if (!popupEl) return;
     document.removeEventListener('click', onOutsideClick, true);
-
-    const sub = result.file
-      ? `<small style="opacity:.6">${result.file}</small>`
-      : '';
-
-    popupEl.innerHTML = `
-      <div class="this-popup-success">
-        <span class="this-success-icon">✅</span>
-        <span class="this-success-title">${result.description || '수정 완료!'}</span>
-        <span class="this-success-sub">${sub}</span>
-      </div>
-    `;
-    setTimeout(closePopup, 3500);
+    var sub = file ? '<small style="opacity:.6">' + file + '</small>' : '';
+    popupEl.innerHTML =
+      '<div class="tpp-result">' +
+        '<span class="tpp-result-title">' + msg + '</span>' +
+        sub +
+      '</div>';
+    setTimeout(function() { closePopup(true); }, success ? 1800 : 4000);
   }
 
-  function showError(msg) {
-    if (!popupEl) return;
-    document.removeEventListener('click', onOutsideClick, true);
-    popupEl.innerHTML = `
-      <div class="this-popup-success">
-        <span class="this-success-icon">❌</span>
-        <span class="this-success-title">전달 실패</span>
-        <span class="this-success-sub" style="color:#f87171">${msg}</span>
-      </div>
-    `;
-    setTimeout(closePopup, 5000);
+  //  Element Info 
+  function getElementInfo(el) {
+    var tag = el.tagName.toLowerCase();
+    var id  = el.id ? '#' + el.id : '';
+    var cls = Array.from(el.classList)
+      .filter(function(c) { return !c.startsWith('this-ext-'); })
+      .map(function(c) { return '.' + c; }).join('');
+    var selector = tag + id + cls || tag;
+    var text = el.textContent.trim().replace(/\s+/g, ' ').slice(0, 80);
+    var cs = window.getComputedStyle(el);
+    return { selector: selector, tag: tag, text: text, url: window.location.href,
+             fontSize: cs.fontSize, color: cs.color, bgColor: cs.backgroundColor, display: cs.display };
   }
 
-  function closePopup() {
-    document.removeEventListener('click', onOutsideClick, true);
-    if (popupEl) { popupEl.remove(); popupEl = null; }
-    if (selectedEl) { selectedEl.classList.remove('this-ext-selected'); selectedEl = null; }
-  }
-
-  // ── Utils ─────────────────────────────────────────────
+  //  Utils 
   function isOurElement(el) {
     if (!el) return false;
-    return (
-      el.id === 'this-ext-popup' ||
-      el.id === 'this-ext-banner' ||
-      el.closest?.('#this-ext-popup') ||
-      el.closest?.('#this-ext-banner')
-    );
+    return !!(el.closest && el.closest('#this-ext-popup'));
   }
 
   function escapeHtml(str) {

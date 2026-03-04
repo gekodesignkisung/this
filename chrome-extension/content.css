@@ -1,160 +1,75 @@
-/* ═══════════════════════════════════════════════
+﻿/* ===============================================
    THIS Extension - Injected UI Styles
-   ═══════════════════════════════════════════════ */
+   =============================================== */
 
-/* ── Picker Mode Banner ───────────────────────── */
-#this-ext-banner {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  z-index: 2147483646 !important;
+/* Hover / Selected */
+.this-ext-hover { outline: 2px dashed #6366f1 !important; outline-offset: 3px !important; background-color: rgba(99,102,241,0.06) !important; cursor: crosshair !important; }
+.this-ext-selected { outline: 2px solid #6366f1 !important; outline-offset: 3px !important; }
 
-  background: rgba(99, 102, 241, 0.92) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
-  backdrop-filter: blur(8px) !important;
-  color: #ffffff !important;
-  font-family: -apple-system, 'Segoe UI', system-ui, sans-serif !important;
-  font-size: 14px !important;
-  font-weight: 500 !important;
-  text-align: center !important;
-  padding: 12px 20px !important;
-  letter-spacing: 0.3px !important;
-
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 16px !important;
-}
-
-#this-ext-banner kbd {
-  background: rgba(255, 255, 255, 0.2) !important;
-  border: 1px solid rgba(255, 255, 255, 0.3) !important;
-  border-radius: 4px !important;
-  padding: 1px 7px !important;
-  font-size: 12px !important;
-  font-family: monospace !important;
-}
-
-/* ── Hover Highlight ──────────────────────────── */
-.this-ext-hover {
-  outline: 2px dashed #6366f1 !important;
-  outline-offset: 3px !important;
-  background-color: rgba(99, 102, 241, 0.06) !important;
-  cursor: crosshair !important;
-  transition: outline 0.1s !important;
-}
-
-/* ── Selected Element ─────────────────────────── */
-.this-ext-selected {
-  outline: 2px solid #6366f1 !important;
-  outline-offset: 3px !important;
-}
-
-/* ── Popup Container ──────────────────────────── */
+/* ============================================================
+   Mini Floating Popup  #this-ext-popup  (tpp-*)
+   ============================================================ */
 #this-ext-popup {
   position: absolute !important;
   z-index: 2147483647 !important;
   width: 300px !important;
-
-  background: #1a1a2e !important;
-  border: 1px solid #2d2d4a !important;
-  border-radius: 14px !important;
-  box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.6),
-    0 4px 16px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
   overflow: hidden !important;
   font-family: -apple-system, 'Segoe UI', system-ui, sans-serif !important;
-  animation: this-popup-in 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  animation: tpp-in 0.18s cubic-bezier(0.34,1.56,0.64,1) !important;
 }
-
-@keyframes this-popup-in {
+@keyframes tpp-in {
   from { opacity: 0; transform: scale(0.92) translateY(4px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-/* Arrow pointing up to element */
-#this-ext-popup.this-arrow-up::before {
+#this-ext-popup.arrow-up::before {
   content: '' !important;
-  position: absolute !important;
-  top: -6px !important;
-  left: 22px !important;
-  width: 12px !important;
-  height: 12px !important;
-  background: #232338 !important;
-  border-left: 1px solid #2d2d4a !important;
-  border-top: 1px solid #2d2d4a !important;
+  position: absolute !important; top: -6px !important; left: 20px !important;
+  width: 12px !important; height: 12px !important;
+  background: #ffffff !important;
+  border-left: 1px solid #e5e7eb !important; border-top: 1px solid #e5e7eb !important;
+  transform: rotate(45deg) !important;
+}
+#this-ext-popup.arrow-down::after {
+  content: '' !important;
+  position: absolute !important; bottom: -6px !important; left: 20px !important;
+  width: 12px !important; height: 12px !important;
+  background: #fff !important;
+  border-right: 1px solid #e5e7eb !important; border-bottom: 1px solid #e5e7eb !important;
   transform: rotate(45deg) !important;
 }
 
-/* Arrow pointing down to element (popup is above) */
-#this-ext-popup.this-arrow-down::after {
-  content: '' !important;
-  position: absolute !important;
-  bottom: -6px !important;
-  left: 22px !important;
-  width: 12px !important;
-  height: 12px !important;
-  background: #1a1a2e !important;
-  border-right: 1px solid #2d2d4a !important;
-  border-bottom: 1px solid #2d2d4a !important;
-  transform: rotate(45deg) !important;
-}
-
-/* ── Popup Header ─────────────────────────────── */
-.this-popup-header {
+.tpp-header {
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
-  padding: 10px 14px !important;
-  background: #232338 !important;
-  border-bottom: 1px solid #2d2d4a !important;
+  padding: 9px 12px !important;
+  background: #ffffff !important;
+  border-bottom: 1px solid #e5e7eb !important;
   gap: 8px !important;
 }
-
-.this-popup-tag {
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  color: #a78bfa !important;
-  font-family: 'Consolas', 'Fira Code', monospace !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  flex: 1 !important;
+.tpp-tag {
+  font-size: 11px !important; font-weight: 600 !important; color: #6366f1 !important;
+  font-family: Consolas, monospace !important;
+  overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; flex: 1 !important;
 }
+.tpp-close { all: unset !important; color: #9ca3af !important; cursor: pointer !important; font-size: 14px !important; padding: 2px 5px !important; border-radius: 4px !important; flex-shrink: 0 !important; transition: all 0.15s !important; }
+.tpp-close:hover { color: #374151 !important; background: #f3f4f6 !important; }
 
-.this-popup-close {
-  all: unset !important;
-  color: #4b5563 !important;
-  cursor: pointer !important;
-  font-size: 15px !important;
-  line-height: 1 !important;
-  padding: 3px 5px !important;
-  border-radius: 4px !important;
-  transition: all 0.15s !important;
-  flex-shrink: 0 !important;
-}
-
-.this-popup-close:hover {
-  color: #e5e7eb !important;
-  background: rgba(255, 255, 255, 0.1) !important;
-}
-
-/* ── Popup Body ───────────────────────────────── */
-.this-popup-body {
-  padding: 12px 14px 8px !important;
-}
-
-.this-popup-input {
+.tpp-body { padding: 10px 12px 6px !important; }
+.tpp-input {
   width: 100% !important;
-  background: #252540 !important;
-  border: 1px solid #383860 !important;
-  border-radius: 8px !important;
-  color: #e2e8f0 !important;
+  background: #f9fafb !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 7px !important;
+  color: #111827 !important;
   font-size: 13px !important;
   font-family: -apple-system, 'Segoe UI', system-ui, sans-serif !important;
-  padding: 10px 12px !important;
+  padding: 9px 11px !important;
   resize: none !important;
   outline: none !important;
   box-sizing: border-box !important;
@@ -162,96 +77,26 @@
   transition: border-color 0.15s, box-shadow 0.15s !important;
   display: block !important;
 }
+.tpp-input:focus { border-color: #6366f1 !important; }
+.tpp-input::placeholder { color: #d1d5db !important; }
 
-.this-popup-input:focus {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18) !important;
-}
-
-.this-popup-input::placeholder {
-  color: #404060 !important;
-}
-
-/* ── Popup Footer ─────────────────────────────── */
-.this-popup-footer {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  padding: 8px 14px 12px !important;
-}
-
-.this-popup-hint {
-  font-size: 11px !important;
-  color: #3d3d5c !important;
-  font-family: -apple-system, system-ui, sans-serif !important;
-}
-
-.this-popup-send {
+.tpp-footer { display: flex !important; align-items: center !important; justify-content: space-between !important; padding: 7px 12px 11px !important; }
+.tpp-hint { font-size: 11px !important; color: #9ca3af !important; }
+.tpp-send {
   all: unset !important;
-  background: linear-gradient(135deg, #6366f1, #7c3aed) !important;
-  color: #ffffff !important;
+  background: linear-gradient(135deg,#6366f1,#7c3aed) !important;
+  color: #fff !important;
   border-radius: 7px !important;
-  padding: 8px 18px !important;
-  font-size: 13px !important;
+  padding: 7px 16px !important;
+  font-size: 12px !important;
   font-weight: 600 !important;
   cursor: pointer !important;
   transition: all 0.15s !important;
-  letter-spacing: 0.2px !important;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4) !important;
 }
+.tpp-send:hover { background: linear-gradient(135deg,#4f46e5,#6d28d9) !important; transform: translateY(-1px) !important; }
+.tpp-send:disabled { background: #e5e7eb !important; color: #9ca3af !important; cursor: not-allowed !important; transform: none !important; }
 
-.this-popup-send:hover {
-  background: linear-gradient(135deg, #4f46e5, #6d28d9) !important;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.5) !important;
-  transform: translateY(-1px) !important;
-}
-
-.this-popup-send:active {
-  transform: translateY(0) !important;
-}
-
-.this-popup-send:disabled {
-  background: #2d2d4a !important;
-  color: #4b5563 !important;
-  cursor: not-allowed !important;
-  box-shadow: none !important;
-  transform: none !important;
-}
-
-/* ── Success State ────────────────────────────── */
-.this-popup-success {
-  padding: 24px 20px !important;
-  text-align: center !important;
-  font-family: -apple-system, 'Segoe UI', system-ui, sans-serif !important;
-}
-
-.this-success-icon {
-  font-size: 32px !important;
-  margin-bottom: 10px !important;
-  display: block !important;
-}
-
-.this-success-title {
-  font-size: 14px !important;
-  font-weight: 700 !important;
-  color: #ffffff !important;
-  margin-bottom: 6px !important;
-  display: block !important;
-}
-
-.this-success-sub {
-  font-size: 12px !important;
-  color: #6b7280 !important;
-  display: block !important;
-  line-height: 1.5 !important;
-}
-
-.this-success-sub kbd {
-  background: rgba(255, 255, 255, 0.1) !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  border-radius: 3px !important;
-  padding: 1px 5px !important;
-  font-size: 11px !important;
-  color: #a78bfa !important;
-  font-family: monospace !important;
-}
+.tpp-result { padding: 20px 16px !important; text-align: center !important; }
+.tpp-result-icon  { font-size: 28px !important; display: block !important; margin-bottom: 8px !important; }
+.tpp-result-title { font-size: 13px !important; font-weight: 700 !important; color: #111827 !important; display: block !important; margin-bottom: 4px !important; }
+.tpp-result small { font-size: 11px !important; color: #9ca3af !important; display: block !important; }

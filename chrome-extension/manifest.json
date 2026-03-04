@@ -3,7 +3,7 @@
   "name": "THIS",
   "description": "개발 중인 페이지에서 요소를 선택하고 Claude Code로 수정 요청을 전달합니다",
   "version": "1.0.0",
-  "permissions": ["clipboardWrite", "activeTab", "scripting"],
+  "permissions": ["clipboardWrite", "activeTab", "scripting", "sidePanel", "tabs", "storage"],
   "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
   "content_scripts": [
     {
@@ -16,8 +16,10 @@
   "background": {
     "service_worker": "background.js"
   },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "action": {
-    "default_popup": "popup.html",
     "default_title": "THIS"
   }
 }

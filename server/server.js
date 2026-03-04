@@ -28,13 +28,52 @@ const PROJECT_ROOT = process.env.PROJECT_ROOT
   : path.resolve(__dirname, '..'); // server/ 의 부모 폴더
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
-const claude = apiKey ? new Anthropic({ apiKey }) : null;
+let claude = apiKey ? new Anthropic({ apiKey }) : null;
 
-// ── Health Check ──────────────────────────────────────
+// 변경 이력 (되돌리기용) - changeId → { file, backupChanges }
+const changeLog = new Map();
+let changeCounter = 0;
+function newChangeId() { return `c${Date.now()}_${++changeCounter}`; }
+
+// ── Config ──────────────────────────────────────────
 app.get('/health', (_, res) => {
   res.json({
     status: 'ok',
-    projectRoot: PROJECT_ROOT,
+    projectRoot: global.PROJECT_ROOT || PROJECT_ROOT,
+    claudeReady: !!claude,
+  });
+});
+
+app.post('/config', (req, res) => {
+  const { projectRoot, apiKey: newApiKey } = req.body;
+
+  if (newApiKey !== undefined) {
+    if (!newApiKey || typeof newApiKey !== 'string') {
+      return res.status(400).json({ success: false, error: '유효한 API 키가 아닙니다.' });
+    }
+    try {
+      claude = new Anthropic({ apiKey: newApiKey });
+      console.log('[THIS] API 키 업데이트됨');
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'API 키 초기화 실패: ' + e.message });
+    }
+  }
+
+  if (projectRoot !== undefined) {
+    if (!projectRoot || typeof projectRoot !== 'string') {
+      return res.status(400).json({ success: false, error: '유효한 경로가 아닙니다.' });
+    }
+    const resolved = path.resolve(projectRoot);
+    if (!fs.existsSync(resolved)) {
+      return res.status(400).json({ success: false, error: '경로가 존재하지 않습니다: ' + resolved });
+    }
+    global.PROJECT_ROOT = resolved;
+    console.log('[THIS] 프로젝트 경로 변경: ' + resolved);
+  }
+
+  res.json({
+    success: true,
+    projectRoot: global.PROJECT_ROOT || PROJECT_ROOT,
     claudeReady: !!claude,
   });
 });
@@ -49,12 +88,12 @@ app.post('/request', async (req, res) => {
   console.log(`[THIS] URL:  ${url}`);
 
   if (!claude) {
-    return res.status(500).json({ success: false, error: 'ANTHROPIC_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.' });
+    return res.status(500).json({ success: false, error: 'API 키가 설정되지 않았습니다. 익스텐션 설정에서 Anthropic API 키를 입력하세요.' });
   }
 
   try {
     // 1. 관련 소스 파일 검색
-    const files = findRelevantFiles(selector, PROJECT_ROOT);
+    const files = findRelevantFiles(selector, global.PROJECT_ROOT || PROJECT_ROOT);
     console.log(`[THIS] 관련 파일 ${files.length}개:`, files.map(f => f.path).join(', '));
 
     // 2. Claude API로 수정 내용 결정
@@ -63,18 +102,30 @@ app.post('/request', async (req, res) => {
 
     // 3. 파일 수정 적용
     if (result.file && result.changes?.length > 0) {
-      applyChanges(result.file, result.changes, PROJECT_ROOT);
-      console.log(`[THIS] ✓ 수정 완료: ${result.file}`);
+      const { modified, backupChanges } = applyChanges(result.file, result.changes, global.PROJECT_ROOT || PROJECT_ROOT);
+      if (modified) {
+        console.log(`[THIS] ✓ 수정 완료: ${result.file}`);
+        // 되돌리기용 이력 저장
+        const changeId = newChangeId();
+        changeLog.set(changeId, { file: result.file, backupChanges });
+        return res.json({
+          success: true,
+          method: 'auto',
+          description: result.description,
+          file: result.file,
+          changeId,
+        });
+      } else {
+        console.log(`[THIS] ✗ 매칭 실패 (공백/내용 불일치): ${result.file}`);
+        return res.status(422).json({
+          success: false,
+          error: `파일에서 수정 대상 코드를 찾을 수 없습니다: ${result.file}`,
+        });
+      }
     } else {
       console.log('[THIS] 수정할 파일을 찾지 못함');
+      return res.status(422).json({ success: false, error: '수정할 파일을 찾지 못했습니다.' });
     }
-
-    res.json({
-      success: true,
-      method: 'auto',
-      description: result.description,
-      file: result.file,
-    });
 
   } catch (err) {
     console.error('[THIS] 오류:', err.message);
@@ -82,9 +133,31 @@ app.post('/request', async (req, res) => {
   }
 });
 
+// ── Restore ──────────────────────────────────────────
+app.post('/restore', (req, res) => {
+  const { changeId } = req.body;
+  if (!changeId || !changeLog.has(changeId)) {
+    return res.status(404).json({ success: false, error: '되돌릴 수 없는 항목입니다.' });
+  }
+  const { file, backupChanges } = changeLog.get(changeId);
+  console.log(`\n[THIS] 되돌리기: ${file} (${changeId})`);
+  try {
+    const { modified } = applyChanges(file, backupChanges, global.PROJECT_ROOT || PROJECT_ROOT);
+    if (modified) {
+      changeLog.delete(changeId);
+      console.log(`[THIS] ✓ 되돌리기 완료: ${file}`);
+      res.json({ success: true, file });
+    } else {
+      res.status(422).json({ success: false, error: '되돌릴 코드를 파일에서 찾을 수 없습니다.' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Find Relevant Files ───────────────────────────────
 function findRelevantFiles(selector, root) {
-  const EXTS = new Set(['.css', '.scss', '.sass', '.tsx', '.jsx', '.vue', '.js', '.ts']);
+  const EXTS = new Set(['.html', '.css', '.scss', '.sass', '.tsx', '.jsx', '.vue', '.js', '.ts']);
   const IGNORE = new Set(['node_modules', '.next', 'dist', 'build', '.git', 'coverage', '.cache', 'out']);
 
   // 선택자에서 검색 키워드 추출
@@ -196,24 +269,36 @@ function applyChanges(relPath, changes, root) {
   }
 
   let content = fs.readFileSync(fullPath, 'utf8');
+  // CRLF → LF 정규화 (Windows 파일 대응)
+  const isCRLF = content.includes('\r\n');
+  const normalized = content.replace(/\r\n/g, '\n');
   let modified = false;
 
+  const backupChanges = [];
+
   for (const { old: oldCode, new: newCode } of changes) {
-    if (content.includes(oldCode)) {
-      content = content.split(oldCode).join(newCode); // 모든 occurrence 교체
+    // Claude 반환 코드도 정규화
+    const oldNorm = oldCode.replace(/\r\n/g, '\n');
+    const newNorm = newCode.replace(/\r\n/g, '\n');
+    if (normalized.includes(oldNorm)) {
+      content = normalized.split(oldNorm).join(newNorm);
+      // 원래 CRLF였으면 복원
+      if (isCRLF) content = content.replace(/\n/g, '\r\n');
       modified = true;
-      console.log(`  교체: "${oldCode.trim()}" → "${newCode.trim()}"`);
+      // 되돌리기용: new → old
+      backupChanges.push({ old: newCode, new: oldCode });
+      console.log(`  교체: "${oldNorm.trim().slice(0, 60)}" → "${newNorm.trim().slice(0, 60)}"`);
     } else {
-      console.warn(`  [경고] 찾을 수 없음: "${oldCode.trim()}"`);
+      console.warn(`  [경고] 찾을 수 없음: "${oldNorm.trim().slice(0, 100)}"`);
     }
   }
 
   if (modified) {
     fs.writeFileSync(fullPath, content, 'utf8');
-    return fullPath;
+    return { modified: fullPath, backupChanges };
   }
 
-  return null;
+  return { modified: null, backupChanges };
 }
 
 // ── Start ─────────────────────────────────────────────
