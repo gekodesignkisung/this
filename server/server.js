@@ -35,6 +35,17 @@ const changeLog = new Map();
 let changeCounter = 0;
 function newChangeId() { return `c${Date.now()}_${++changeCounter}`; }
 
+// 중복 요청 방지 - 동일 요청 35초 내 재전송 무시 (API 타임아웃 30초 + 여유)
+const recentRequests = new Map();
+function isDuplicate(key) {
+  const now = Date.now();
+  if (recentRequests.has(key) && now - recentRequests.get(key) < 35000) return true;
+  recentRequests.set(key, now);
+  // 오래된 항목 정리
+  for (const [k, t] of recentRequests) if (now - t > 60000) recentRequests.delete(k);
+  return false;
+}
+
 // ── Config ──────────────────────────────────────────
 app.get('/health', (_, res) => {
   res.json({
@@ -81,6 +92,13 @@ app.post('/config', (req, res) => {
 // ── Edit Request ──────────────────────────────────────
 app.post('/request', async (req, res) => {
   const { selector, message, url, elementInfo } = req.body;
+
+  // 중복 요청 차단
+  const dedupKey = `${selector}::${message}::${url}`;
+  if (isDuplicate(dedupKey)) {
+    console.log(`[THIS] 중복 요청 무시: "${message}" (${selector})`);
+    return res.status(429).json({ success: false, error: '중복 요청이 무시되었습니다.' });
+  }
 
   console.log('\n' + '═'.repeat(60));
   console.log(`[THIS] 선택: ${selector}`);
@@ -261,6 +279,49 @@ ${filesSection}
 }
 
 // ── Apply Changes ─────────────────────────────────────
+function normalizeWS(str) {
+  // 각 줄의 앞뒤 공백 제거 후 재결합 (들여쓰기 차이 무시)
+  return str.split('\n').map(l => l.trim()).join('\n').trim();
+}
+
+function flexibleReplace(content, oldCode, newCode) {
+  const oldNorm = oldCode.replace(/\r\n/g, '\n');
+  const newNorm = newCode.replace(/\r\n/g, '\n');
+
+  // 1단계: 정확히 일치
+  if (content.includes(oldNorm)) {
+    return content.split(oldNorm).join(newNorm);
+  }
+
+  // 2단계: 공백 정규화 후 일치 (들여쓰기/공백 차이 허용)
+  const lines = content.split('\n');
+  const oldLines = oldNorm.split('\n');
+  const oldWSNorm = oldLines.map(l => l.trim());
+  const oldLen = oldLines.length;
+
+  for (let i = 0; i <= lines.length - oldLen; i++) {
+    const slice = lines.slice(i, i + oldLen).map(l => l.trim());
+    if (slice.join('\n') === oldWSNorm.join('\n')) {
+      // 기존 첫 줄의 들여쓰기를 기준으로 새 코드 들여쓰기 맞추기
+      const baseIndent = lines[i].match(/^(\s*)/)[1];
+      const newLines = newNorm.split('\n').map((l, idx) => {
+        if (idx === 0) return baseIndent + l.trim();
+        // old의 상대 들여쓰기 계산
+        const oldIndent = oldLines[idx]?.match(/^(\s*)/)?.[1] ?? '';
+        const relativeIndent = oldIndent.length > oldLines[0].match(/^(\s*)/)[1].length
+          ? ' '.repeat(oldIndent.length - oldLines[0].match(/^(\s*)/)[1].length)
+          : '';
+        return baseIndent + relativeIndent + l.trim();
+      });
+      const result = [...lines];
+      result.splice(i, oldLen, ...newLines);
+      return result.join('\n');
+    }
+  }
+
+  return null; // 매칭 실패
+}
+
 function applyChanges(relPath, changes, root) {
   const fullPath = path.join(root, relPath);
 
@@ -271,30 +332,29 @@ function applyChanges(relPath, changes, root) {
   let content = fs.readFileSync(fullPath, 'utf8');
   // CRLF → LF 정규화 (Windows 파일 대응)
   const isCRLF = content.includes('\r\n');
-  const normalized = content.replace(/\r\n/g, '\n');
+  content = content.replace(/\r\n/g, '\n');
   let modified = false;
 
   const backupChanges = [];
 
   for (const { old: oldCode, new: newCode } of changes) {
-    // Claude 반환 코드도 정규화
-    const oldNorm = oldCode.replace(/\r\n/g, '\n');
-    const newNorm = newCode.replace(/\r\n/g, '\n');
-    if (normalized.includes(oldNorm)) {
-      content = normalized.split(oldNorm).join(newNorm);
-      // 원래 CRLF였으면 복원
-      if (isCRLF) content = content.replace(/\n/g, '\r\n');
+    const replaced = flexibleReplace(content, oldCode, newCode);
+    if (replaced !== null) {
+      const oldNorm = oldCode.replace(/\r\n/g, '\n');
+      const newNorm = newCode.replace(/\r\n/g, '\n');
+      backupChanges.push({ old: newNorm, new: oldNorm });
+      content = replaced;
       modified = true;
-      // 되돌리기용: new → old
-      backupChanges.push({ old: newCode, new: oldCode });
-      console.log(`  교체: "${oldNorm.trim().slice(0, 60)}" → "${newNorm.trim().slice(0, 60)}"`);
+      console.log(`  교체: "${oldCode.trim().slice(0, 60)}" → "${newCode.trim().slice(0, 60)}"`);
     } else {
-      console.warn(`  [경고] 찾을 수 없음: "${oldNorm.trim().slice(0, 100)}"`);
+      console.warn(`  [경고] 찾을 수 없음: "${oldCode.trim().slice(0, 100)}"`);
     }
   }
 
   if (modified) {
-    fs.writeFileSync(fullPath, content, 'utf8');
+    // 원래 CRLF였으면 복원
+    const finalContent = isCRLF ? content.replace(/\n/g, '\r\n') : content;
+    fs.writeFileSync(fullPath, finalContent, 'utf8');
     return { modified: fullPath, backupChanges };
   }
 

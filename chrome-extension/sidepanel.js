@@ -143,8 +143,12 @@ async function sendToTab(type, data) {
   } catch {
     // content script 가 아직 주입되지 않은 경우 → 직접 주입 후 재시도
     try {
-      // 기존 로드 플래그 초기화 (이전 context 무효화 후 재주입 허용)
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => { delete window.__thisExtLoaded; } });
+      // 이전 인스턴스 정리 후 재주입 (중복 인스턴스 방지)
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => {
+        if (window.__thisCleanup) { try { window.__thisCleanup(); } catch(_) {} }
+        delete window.__thisExtLoaded;
+        delete window.__thisCleanup;
+      } });
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
       await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['content.css'] });
       await new Promise(r => setTimeout(r, 80));
@@ -181,9 +185,8 @@ function setEditStatus(text, cls) {
 // content.js 메시지 수신
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'ELEMENT_PICKED') {
-    isActive = false;
-    editToggle.checked = false;
-    setEditStatus('처리 중...', '');
+    // 스위치는 끄지 않고 상태 텍스트만 변경 (처리 완료 후 자동 복원)
+    setEditStatus('처리 중...', 'active');
   }
   // PICK_DONE: 히스토리는 storage.onChanged로 처리, 여기선 피커 재활성화만
   if (msg.type === 'PICK_DONE') {
@@ -203,6 +206,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
     const newHistory = changes.thisHistory.newValue || [];
     history.splice(0, history.length, ...newHistory);
     renderHistory();
+    // 수정 이력이 추가됐으면 PICK_DONE 메시지 유실 대비 피커 복원
+    if (editToggle.checked) {
+      isActive = true;
+      setEditStatus('요소를 클릭하세요', 'active');
+      sendToTab('ACTIVATE_PICKER');
+    }
   }
 });
 

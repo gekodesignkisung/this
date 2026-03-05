@@ -6,6 +6,8 @@
 (function () {
   'use strict';
 
+  // 이전 인스턴스 정리 (sendToTab 재주입 시)
+  if (window.__thisCleanup) { try { window.__thisCleanup(); } catch(_) {} }
   if (window.__thisExtLoaded) return;
   window.__thisExtLoaded = true;
 
@@ -13,33 +15,30 @@
   let hoveredEl      = null;
   let selectedEl     = null;
   let popupEl        = null;
+  let isSending      = false;
+
+  // 재주입 시 이전 인스턴스 정리용 함수 노출
+  window.__thisCleanup = function() {
+    deactivatePicker();
+    try { chrome.runtime.onMessage.removeListener(onMessage); } catch(_) {}
+  };
 
   //  Message Listener 
+  function onMessage(msg, _sender, sendResponse) {
+    if (msg.type === 'ACTIVATE_PICKER') {
+      activatePicker();
+      sendResponse({ ok: true });
+    } else if (msg.type === 'DEACTIVATE_PICKER') {
+      deactivatePicker();
+      sendResponse({ ok: true });
+    }
+    return true;
+  }
   try {
-    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-      if (msg.type === 'ACTIVATE_PICKER') {
-        activatePicker();
-        sendResponse({ ok: true });
-      } else if (msg.type === 'DEACTIVATE_PICKER') {
-        deactivatePicker();
-        sendResponse({ ok: true });
-      }
-      return true;
-    });
+    chrome.runtime.onMessage.addListener(onMessage);
   } catch (_) { /* context invalidated */ }
 
   //  Picker
-  var idleTimer = null;
-  var IDLE_MS = 60 * 1000; // 1분
-
-  function resetIdleTimer() {
-    clearTimeout(idleTimer);
-    idleTimer = setTimeout(function() {
-      deactivatePicker();
-      try { chrome.runtime.sendMessage({ type: 'PICK_CANCELLED' }); } catch (_) {}
-    }, IDLE_MS);
-  }
-
   function activatePicker() {
     if (isPickerActive) return;
     isPickerActive = true;
@@ -47,11 +46,9 @@
     document.addEventListener('mouseout', onMouseOut);
     document.addEventListener('click', onPick, true);
     document.addEventListener('keydown', onKeyDown);
-    resetIdleTimer();
   }
 
   function deactivatePicker() {
-    clearTimeout(idleTimer);
     isPickerActive = false;
     removeHighlights();
     closePopup(false);
@@ -175,23 +172,29 @@
     document.removeEventListener('click', onOutsideClick, true);
     if (popupEl) { popupEl.remove(); popupEl = null; }
     if (selectedEl) { selectedEl.classList.remove('this-ext-selected'); selectedEl = null; }
-    if (resumePicker) activatePicker();
+    if (resumePicker) {
+      activatePicker();
+      // 사이드패널 스위치도 복원
+      try { chrome.runtime.sendMessage({ type: 'PICK_DONE' }); } catch (_) {}
+    }
   }
 
   //  Send to Server 
   async function handleSend(info, textarea) {
     var message = textarea.value.trim();
     if (!message) { textarea.style.borderColor = '#ef4444'; textarea.focus(); return; }
+    if (isSending) return; // 중복 전송 방지
+    isSending = true;
 
     var sendBtn = popupEl && popupEl.querySelector('.tpp-send');
-    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '\uc804\uc1a1 \uc911...'; }
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '전송 중...'; }
 
     try {
       var result = await sendToServer(info, message);
       if (result.success === false) {
-        showPopupResult(false, info.selector, result.error || '\uc218\uc815\uc5d0 \uc2e4\ud328\ud588\uc2b5\ub2c8\ub2e4.');
+        showPopupResult(false, info.selector, result.error || '수정에 실패했습니다.');
       } else {
-        showPopupResult(true, info.selector, result.description || '\uc218\uc815 \uc644\ub8cc!', result.file);
+        showPopupResult(true, info.selector, result.description || '수정 완료!', result.file);
         // 히스토리를 storage에 저장 (메시지 유실 방지)
         try {
           chrome.storage.local.get(['thisHistory'], function(data) {
@@ -201,11 +204,11 @@
             chrome.storage.local.set({ thisHistory: hist });
           });
         } catch (_) {}
-        // 피커 재활성화 신호 (best-effort)
-        try { chrome.runtime.sendMessage({ type: 'PICK_DONE' }); } catch (_) {}
       }
     } catch (_) {
-      showPopupResult(false, info.selector, '\uc11c\ubc84\uc5d0 \uc5f0\uacb0\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.');
+      showPopupResult(false, info.selector, '서버에 연결할 수 없습니다.');
+    } finally {
+      isSending = false;
     }
   }
 
@@ -233,7 +236,11 @@
         '<span class="tpp-result-title">' + escapeHtml(msg) + '</span>' +
         fileHtml +
       '</div>';
-    setTimeout(function() { closePopup(false); }, success ? 1800 : 4000);
+    setTimeout(function() {
+      closePopup(false);
+      // 성공/실패 모두 피커 재활성화 신호 전송
+      try { chrome.runtime.sendMessage({ type: 'PICK_DONE' }); } catch (_) {}
+    }, success ? 1800 : 4000);
   }
 
   //  Element Info 
