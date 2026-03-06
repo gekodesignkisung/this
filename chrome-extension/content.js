@@ -44,7 +44,7 @@
     isPickerActive = true;
     document.addEventListener('mouseover', onHover);
     document.addEventListener('mouseout', onMouseOut);
-    document.addEventListener('click', onPick, true);
+    document.addEventListener('mousedown', onPick, true);
     document.addEventListener('keydown', onKeyDown);
   }
 
@@ -54,7 +54,7 @@
     closePopup(false);
     document.removeEventListener('mouseover', onHover);
     document.removeEventListener('mouseout', onMouseOut);
-    document.removeEventListener('click', onPick, true);
+    document.removeEventListener('mousedown', onPick, true);
     document.removeEventListener('keydown', onKeyDown);
   }
 
@@ -83,7 +83,7 @@
     isPickerActive = false;
     document.removeEventListener('mouseover', onHover);
     document.removeEventListener('mouseout', onMouseOut);
-    document.removeEventListener('click', onPick, true);
+    document.removeEventListener('mousedown', onPick, true);
     document.removeEventListener('keydown', onKeyDown);
 
     removeHighlights();
@@ -139,7 +139,7 @@
     textarea.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); handleSend(info, textarea); }
     });
-    setTimeout(() => document.addEventListener('click', onOutsideClick, true), 100);
+    setTimeout(() => document.addEventListener('mousedown', onOutsideClick, true), 100);
     textarea.focus();
   }
 
@@ -169,7 +169,7 @@
   }
 
   function closePopup(resumePicker) {
-    document.removeEventListener('click', onOutsideClick, true);
+    document.removeEventListener('mousedown', onOutsideClick, true);
     if (popupEl) { popupEl.remove(); popupEl = null; }
     if (selectedEl) { selectedEl.classList.remove('this-ext-selected'); selectedEl = null; }
     if (resumePicker) {
